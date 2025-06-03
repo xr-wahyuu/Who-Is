@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pencari Info IP & Diagnostik Jaringan</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Tailwind gray-100 */
+        }
+        .card {
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        .card-title {
+            font-size: 1.5rem; /* 24px */
+            font-weight: 700;
+            color: #1e3a8a; /* Darker blue */
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #3b82f6; /* Blue accent */
+        }
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+        }
+        .info-item {
+            background-color: #f9fafb; /* Tailwind gray-50 */
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb; /* Tailwind gray-200 */
+        }
+        .info-label {
+            font-weight: 600;
+            color: #374151; /* Tailwind gray-700 */
+            display: block;
+            margin-bottom: 4px;
+        }
+        .info-value {
+            color: #1f2937; /* Tailwind gray-800 */
+            word-break: break-all;
+        }
+        .node-result-card {
+            background-color: #f9fafb; /* gray-50 */
+            border: 1px solid #e5e7eb; /* gray-200 */
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+        .node-name {
+            font-weight: 600;
+            color: #1d4ed8; /* blue-700 */
+            margin-bottom: 8px;
+        }
+        .loader {
+            border: 4px solid #e5e7eb; /* Tailwind gray-200 */
+            border-top: 4px solid #3b82f6; /* Blue */
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .input-field, .select-field {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid #d1d5db; /* Tailwind gray-300 */
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            background-color: white;
+        }
+        .input-field:focus, .select-field:focus {
+            outline: none;
+            border-color: #3b82f6; /* Blue */
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+        }
+        .button-primary {
+            background-color: #3b82f6; /* Blue */
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            border: none;
+            white-space: nowrap;
+        }
+        .button-primary:hover {
+            background-color: #2563eb; /* Darker blue */
+        }
+        .button-primary:disabled {
+            background-color: #9ca3af; /* gray-400 */
+            cursor: not-allowed;
+        }
+        .error-message {
+            color: #ef4444; /* Tailwind red-500 */
+            background-color: #fee2e2; /* Tailwind red-100 */
+            border: 1px solid #fca5a5; /* Tailwind red-300 */
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 16px;
+        }
+         /* Custom Modal for Alerts */
+        .custom-modal {
+            display: none; /* Hidden by default */
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.6);
+            align-items: center;
+            justify-content: center;
+        }
+        .custom-modal-content {
+            background-color: #fff;
+            margin: auto;
+            padding: 24px;
+            border: 1px solid #d1d5db;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 400px;
+            text-align: center;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+        .custom-modal-close-button {
+            background-color: #3b82f6;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            margin-top: 20px;
+            transition: background-color 0.2s;
+        }
+        .custom-modal-close-button:hover {
+            background-color: #2563eb;
+        }
+        .check-host-grid {
+            display: grid;
+            grid-template-columns: 1fr; /* Single column for node results */
+            gap: 16px;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="container mx-auto max-w-3xl">
+        <header class="text-center mb-10">
+            <h1 class="text-4xl font-bold text-blue-700">Pencari Info IP & Diagnostik Jaringan</h1>
+            <p class="text-lg text-slate-600 mt-2">Dapatkan detail lokasi, ISP, dan lakukan pengecekan jaringan.</p>
+        </header>
+
+        <!-- Informasi IP Pengguna Saat Ini (ipwho.is) -->
+        <section class="card" id="my-ip-info">
+            <h2 class="card-title">Informasi IP Anda Saat Ini (ipwho.is)</h2>
+            <div id="my-ip-details" class="info-grid">
+                <div class="loader"></div>
+            </div>
+            <div id="my-ip-error" class="error-message hidden"></div>
+        </section>
+
+        <!-- Pencarian Info IP/Domain Dasar (ipwho.is) -->
+        <section class="card" id="basic-lookup-section">
+            <h2 class="card-title">Pencarian Info IP/Domain Dasar (ipwho.is)</h2>
+            <div class="flex flex-col sm:flex-row gap-3 mb-4">
+                <input type="text" id="basic-lookup-input" class="input-field flex-grow" placeholder="Masukkan IP atau Domain (mis: 8.8.8.8 atau google.com)">
+                <button id="basic-lookup-button" class="button-primary">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline-block mr-1 -mt-0.5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" />
+                    </svg>
+                    Cari Info Dasar
+                </button>
+            </div>
+            <div id="basic-lookup-results-container" class="hidden">
+                <h3 class="text-xl font-semibold text-slate-700 mb-3">Hasil Pencarian Dasar untuk "<span id="basic-lookup-query-display"></span>":</h3>
+                <div id="basic-lookup-details" class="info-grid"></div>
+            </div>
+            <div id="basic-lookup-loader" class="loader hidden"></div>
+            <div id="basic-lookup-error" class="error-message hidden"></div>
+        </section>
+
+        <!-- Diagnostik Jaringan (check-host.net) -->
+        <section class="card" id="check-host-section">
+            <h2 class="card-title">Diagnostik Jaringan (check-host.net)</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-3 mb-4 items-end">
+                <input type="text" id="check-host-input" class="input-field" placeholder="Host (mis: google.com atau 8.8.8.8)">
+                <select id="check-host-type" class="select-field">
+                    <option value="ping">Ping</option>
+                    <option value="http">HTTP</option>
+                    <option value="tcp">TCP Port</option>
+                    <option value="dns">DNS Lookup</option>
+                </select>
+                <button id="start-check-host-button" class="button-primary">Mulai Pengecekan</button>
+            </div>
+
+            <div id="check-host-initial-info" class="mb-4 hidden p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h4 class="font-semibold text-blue-700">Pengecekan Dimulai:</h4>
+                <p>ID Permintaan: <strong id="check-host-request-id" class="text-slate-700"></strong></p>
+                <p>Tautan Laporan: <a id="check-host-permanent-link" href="#" target="_blank" class="text-blue-600 hover:underline">Lihat Laporan Detail</a></p>
+                <div class="mt-2">
+                    <p class="font-medium text-slate-600">Node yang digunakan:</p>
+                    <ul id="check-host-nodes-list" class="list-disc list-inside text-sm text-slate-500"></ul>
+                </div>
+                <button id="get-check-host-results-button" class="button-primary mt-3">Dapatkan Hasil Pengecekan</button>
+            </div>
+
+            <div id="check-host-results-loader" class="loader hidden"></div>
+            <div id="check-host-results-display" class="check-host-grid mt-4 hidden">
+                <!-- Hasil pengecekan per node akan ditampilkan di sini -->
+            </div>
+            <div id="check-host-error" class="error-message hidden"></div>
+        </section>
+
+        <footer class="text-center py-8 text-slate-500 text-sm">
+            <p>&copy; <span id="currentYear"></span> Alat Informasi IP & Diagnostik. 
+                API Info Dasar oleh <a href="https://ipwho.is/" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">ipwho.is</a>.
+                API Diagnostik oleh <a href="https://check-host.net/" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">check-host.net</a>.
+            </p>
+        </footer>
+    </div>
+
+    <!-- Custom Modal Structure -->
+    <div id="customAlertModal" class="custom-modal">
+        <div class="custom-modal-content">
+            <p id="customAlertMessage" class="text-slate-700 text-base"></p>
+            <button id="customAlertCloseButton" class="custom-modal-close-button">OK</button>
+        </div>
+    </div>
+
+    <script>
+        // --- Variabel Global & Element DOM ---
+        const currentYearEl = document.getElementById('currentYear');
+        currentYearEl.textContent = new Date().getFullYear();
+
+        // Elements for ipwho.is (My IP)
+        const myIpDetailsDiv = document.getElementById('my-ip-details');
+        const myIpErrorDiv = document.getElementById('my-ip-error');
+
+        // Elements for ipwho.is (Basic Lookup)
+        const basicLookupInput = document.getElementById('basic-lookup-input');
+        const basicLookupButton = document.getElementById('basic-lookup-button');
+        const basicLookupResultsContainer = document.getElementById('basic-lookup-results-container');
+        const basicLookupQueryDisplay = document.getElementById('basic-lookup-query-display');
+        const basicLookupDetailsDiv = document.getElementById('basic-lookup-details');
+        const basicLookupLoader = document.getElementById('basic-lookup-loader');
+        const basicLookupErrorDiv = document.getElementById('basic-lookup-error');
+
+        // Elements for check-host.net
+        const checkHostInput = document.getElementById('check-host-input');
+        const checkHostTypeSelect = document.getElementById('check-host-type');
+        const startCheckHostButton = document.getElementById('start-check-host-button');
+        const checkHostInitialInfoDiv = document.getElementById('check-host-initial-info');
+        const checkHostRequestIdEl = document.getElementById('check-host-request-id');
+        const checkHostPermanentLinkEl = document.getElementById('check-host-permanent-link');
+        const checkHostNodesListEl = document.getElementById('check-host-nodes-list');
+        const getCheckHostResultsButton = document.getElementById('get-check-host-results-button');
+        const checkHostResultsLoader = document.getElementById('check-host-results-loader');
+        const checkHostResultsDisplayDiv = document.getElementById('check-host-results-display');
+        const checkHostErrorDiv = document.getElementById('check-host-error');
+        
+        let currentCheckHostRequestId = null;
+        let currentCheckHostType = null;
+        let checkHostResultPollInterval = null;
+        let pollAttempts = 0;
+        const MAX_POLL_ATTEMPTS = 10; // Coba 10 kali (total ~30 detik jika interval 3 detik)
+        const POLL_INTERVAL_MS = 3000;
+
+
+        // --- Custom Alert Modal ---
+        const customAlertModal = document.getElementById('customAlertModal');
+        const customAlertMessage = document.getElementById('customAlertMessage');
+        const customAlertCloseButton = document.getElementById('customAlertCloseButton');
+
+        function showCustomAlert(message) {
+            customAlertMessage.textContent = message;
+            customAlertModal.style.display = 'flex';
+        }
+        customAlertCloseButton.onclick = () => { customAlertModal.style.display = 'none'; };
+        window.onclick = (event) => { if (event.target == customAlertModal) customAlertModal.style.display = 'none'; };
+
+        // --- Fungsi Helper untuk Menampilkan Info ---
+        function displayIpwhoInfo(data, elementToPopulate, queryForDisplay) {
+            elementToPopulate.innerHTML = '';
+            const fields = {
+                ip: 'Alamat IP', type: 'Tipe IP', continent: 'Benua', country: 'Negara', region: 'Wilayah/Provinsi',
+                city: 'Kota', latitude: 'Lintang', longitude: 'Bujur', isp: 'ISP', org: 'Organisasi',
+                asn_data: 'Info AS', timezone_utc: 'Zona Waktu (UTC)'
+            };
+            if (queryForDisplay && data && data.ip && queryForDisplay.toLowerCase() !== data.ip.toLowerCase()) {
+                addInfoItemDOM(elementToPopulate, 'Input Asli', queryForDisplay);
+            }
+            for (const key in fields) {
+                let val = null;
+                if (key === 'asn_data' && data.connection) val = `${data.connection.asn||'N/A'} (${data.connection.org||'N/A'}) ${data.connection.domain ? '- Dom: '+data.connection.domain : ''}`;
+                else if (key === 'timezone_utc' && data.timezone) val = `${data.timezone.id||'N/A'} (UTC${data.timezone.utc||'N/A'})`;
+                else if (data.hasOwnProperty(key) && data[key]) val = data[key];
+                else if (data.connection && data.connection.hasOwnProperty(key) && data.connection[key]) val = data.connection[key];
+                if (val) addInfoItemDOM(elementToPopulate, fields[key], val);
+            }
+        }
+
+        function addInfoItemDOM(parent, label, value) {
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'info-item';
+            const labelSpan = document.createElement('span');
+            labelSpan.className = 'info-label';
+            labelSpan.textContent = label;
+            const valueSpan = document.createElement('span');
+            valueSpan.className = 'info-value';
+            valueSpan.textContent = value;
+            itemDiv.appendChild(labelSpan);
+            itemDiv.appendChild(valueSpan);
+            parent.appendChild(itemDiv);
+        }
+        
+        // --- Fungsi API untuk ipwho.is ---
+        async function fetchIpwhoApi(query = '') {
+            const apiUrl = `https://ipwho.is/${query}`;
+            try {
+                const response = await fetch(apiUrl);
+                const data = await response.json();
+                if (!response.ok || (data && typeof data.success === 'boolean' && !data.success)) {
+                    throw new Error(data.message || `HTTP error ${response.status}`);
+                }
+                if (!data || typeof data.success === 'undefined') {
+                    throw new Error('Respons API ipwho.is tidak valid.');
+                }
+                return data;
+            } catch (error) {
+                console.error('Error fetchIpwhoApi:', error);
+                let msg = "Gagal mengambil data dari ipwho.is.";
+                if (error.message.toLowerCase().includes("failed to fetch")) msg = "Gagal terhubung ke server ipwho.is (Failed to fetch). Periksa koneksi internet Anda.";
+                else msg = error.message;
+                throw new Error(msg);
+            }
+        }
+
+        // --- Logika untuk ipwho.is (My IP) ---
+        async function loadMyIpInfo() {
+            myIpDetailsDiv.innerHTML = '<div class="loader"></div>';
+            myIpErrorDiv.classList.add('hidden');
+            try {
+                const data = await fetchIpwhoApi();
+                displayIpwhoInfo(data, myIpDetailsDiv, data.ip);
+            } catch (error) {
+                myIpDetailsDiv.innerHTML = '';
+                myIpErrorDiv.textContent = `Gagal memuat info IP Anda: ${error.message}`;
+                myIpErrorDiv.classList.remove('hidden');
+            }
+        }
+
+        // --- Logika untuk ipwho.is (Basic Lookup) ---
+        basicLookupButton.addEventListener('click', async () => {
+            const query = basicLookupInput.value.trim();
+            if (!query) { showCustomAlert('Masukkan IP atau domain untuk pencarian dasar.'); return; }
+
+            basicLookupLoader.classList.remove('hidden');
+            basicLookupResultsContainer.classList.add('hidden');
+            basicLookupErrorDiv.classList.add('hidden');
+            basicLookupDetailsDiv.innerHTML = '';
+            try {
+                const data = await fetchIpwhoApi(query);
+                basicLookupQueryDisplay.textContent = query;
+                displayIpwhoInfo(data, basicLookupDetailsDiv, query);
+                basicLookupResultsContainer.classList.remove('hidden');
+            } catch (error) {
+                basicLookupErrorDiv.textContent = `Gagal mencari info dasar untuk "${query}": ${error.message}`;
+                basicLookupErrorDiv.classList.remove('hidden');
+            } finally {
+                basicLookupLoader.classList.add('hidden');
+            }
+        });
+        basicLookupInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') basicLookupButton.click(); });
+
+        // --- Fungsi API untuk check-host.net ---
+        async function initiateCheckHostNet(checkType, host, maxNodes = 3) {
+            const apiUrl = `https://check-host.net/check-${checkType}?host=${encodeURIComponent(host)}&max_nodes=${maxNodes}`;
+            try {
+                const response = await fetch(apiUrl, { headers: { 'Accept': 'application/json' } });
+                const data = await response.json();
+                if (!response.ok || !data.ok) {
+                    throw new Error(data.error || `Gagal memulai pengecekan: HTTP ${response.status}`);
+                }
+                return data;
+            } catch (error) {
+                console.error('Error initiateCheckHostNet:', error);
+                let msg = "Gagal memulai pengecekan dengan check-host.net.";
+                if (error.message.toLowerCase().includes("failed to fetch")) msg = "Gagal terhubung ke server check-host.net (Failed to fetch). Periksa koneksi internet Anda.";
+                else msg = error.message;
+                throw new Error(msg);
+            }
+        }
+
+        async function fetchCheckHostNetResult(requestId) {
+            const apiUrl = `https://check-host.net/check-result/${requestId}`;
+            try {
+                const response = await fetch(apiUrl, { headers: { 'Accept': 'application/json' } });
+                const data = await response.json();
+                // Tidak ada status 'ok' di respons hasil, jadi kita asumsikan ok jika tidak error
+                if (!response.ok) {
+                     throw new Error(`Gagal mengambil hasil: HTTP ${response.status}`);
+                }
+                return data;
+            } catch (error) {
+                console.error('Error fetchCheckHostNetResult:', error);
+                 let msg = "Gagal mengambil hasil pengecekan dari check-host.net.";
+                if (error.message.toLowerCase().includes("failed to fetch")) msg = "Gagal terhubung ke server check-host.net (Failed to fetch) saat mengambil hasil.";
+                else msg = error.message;
+                throw new Error(msg);
+            }
+        }
+
+        // --- Logika untuk check-host.net ---
+        startCheckHostButton.addEventListener('click', async () => {
+            const host = checkHostInput.value.trim();
+            currentCheckHostType = checkHostTypeSelect.value;
+            if (!host) { showCustomAlert('Masukkan host untuk diagnostik jaringan.'); return; }
+
+            startCheckHostButton.disabled = true;
+            getCheckHostResultsButton.disabled = true;
+            checkHostResultsLoader.classList.remove('hidden');
+            checkHostInitialInfoDiv.classList.add('hidden');
+            checkHostResultsDisplayDiv.classList.add('hidden');
+            checkHostErrorDiv.classList.add('hidden');
+            checkHostNodesListEl.innerHTML = '';
+            
+            try {
+                const initialData = await initiateCheckHostNet(currentCheckHostType, host);
+                currentCheckHostRequestId = initialData.request_id;
+                checkHostRequestIdEl.textContent = initialData.request_id;
+                checkHostPermanentLinkEl.href = initialData.permanent_link;
+                
+                if (initialData.nodes) {
+                    Object.entries(initialData.nodes).forEach(([nodeName, nodeInfo]) => {
+                        const li = document.createElement('li');
+                        // nodeInfo is an array: ["us", "USA", "Los Angeles", "5.253.30.82", "AS18978"]
+                        li.textContent = `${nodeName} (${nodeInfo[1]}, ${nodeInfo[2]})`;
+                        checkHostNodesListEl.appendChild(li);
+                    });
+                }
+
+                checkHostInitialInfoDiv.classList.remove('hidden');
+                getCheckHostResultsButton.disabled = false;
+                // Otomatis coba ambil hasil pertama setelah beberapa detik
+                pollAttempts = 0;
+                setTimeout(pollForCheckHostResults, POLL_INTERVAL_MS);
+
+
+            } catch (error) {
+                checkHostErrorDiv.textContent = `Error memulai pengecekan: ${error.message}`;
+                checkHostErrorDiv.classList.remove('hidden');
+            } finally {
+                checkHostResultsLoader.classList.add('hidden'); // Sembunyikan loader utama jika error di awal
+                startCheckHostButton.disabled = false; // Aktifkan kembali tombol start jika gagal
+            }
+        });
+
+        getCheckHostResultsButton.addEventListener('click', () => {
+            if (currentCheckHostRequestId) {
+                pollAttempts = 0; // Reset attempts jika manual klik
+                pollForCheckHostResults();
+            } else {
+                showCustomAlert("Belum ada pengecekan yang dimulai atau ID permintaan tidak valid.");
+            }
+        });
+        
+        function pollForCheckHostResults() {
+            if (!currentCheckHostRequestId) return;
+
+            getCheckHostResultsButton.disabled = true;
+            checkHostResultsLoader.classList.remove('hidden');
+            checkHostErrorDiv.classList.add('hidden'); // Sembunyikan error lama
+
+            fetchCheckHostNetResult(currentCheckHostRequestId)
+                .then(results => {
+                    checkHostResultsDisplayDiv.innerHTML = ''; // Clear previous results
+                    let allNodesCompleted = true;
+                    
+                    if (Object.keys(results).length === 0) { // Jika objek hasil kosong
+                        allNodesCompleted = false; // Anggap belum selesai
+                        const p = document.createElement('p');
+                        p.textContent = "Menunggu hasil dari node...";
+                        p.className = "text-slate-500";
+                        checkHostResultsDisplayDiv.appendChild(p);
+                    } else {
+                        for (const nodeName in results) {
+                            const nodeResult = results[nodeName];
+                            if (nodeResult === null) { // Jika satu node masih null, belum semua selesai
+                                allNodesCompleted = false;
+                            }
+                            displayCheckHostNodeResult(nodeName, nodeResult, currentCheckHostType);
+                        }
+                    }
+                    
+                    checkHostResultsDisplayDiv.classList.remove('hidden');
+
+                    if (!allNodesCompleted && pollAttempts < MAX_POLL_ATTEMPTS) {
+                        pollAttempts++;
+                        checkHostResultPollInterval = setTimeout(pollForCheckHostResults, POLL_INTERVAL_MS);
+                         // Jangan aktifkan tombol get result jika masih polling
+                    } else if (!allNodesCompleted && pollAttempts >= MAX_POLL_ATTEMPTS) {
+                        checkHostErrorDiv.textContent = "Gagal mendapatkan semua hasil setelah beberapa kali percobaan. Anda bisa mencoba 'Dapatkan Hasil' lagi atau cek tautan laporan.";
+                        checkHostErrorDiv.classList.remove('hidden');
+                        getCheckHostResultsButton.disabled = false; // Aktifkan kembali jika polling maxed out
+                    } else {
+                        getCheckHostResultsButton.disabled = false; // Semua selesai, aktifkan tombol
+                    }
+                })
+                .catch(error => {
+                    checkHostErrorDiv.textContent = `Error mengambil hasil: ${error.message}`;
+                    checkHostErrorDiv.classList.remove('hidden');
+                    getCheckHostResultsButton.disabled = false;
+                })
+                .finally(() => {
+                    // Sembunyikan loader hanya jika tidak ada polling lanjutan atau sudah selesai/error
+                    if (pollAttempts >= MAX_POLL_ATTEMPTS || (Object.keys(checkHostResultsDisplayDiv.innerHTML).length > 0 && !checkHostResultsDisplayDiv.textContent.includes("Menunggu hasil"))) {
+                         checkHostResultsLoader.classList.add('hidden');
+                    }
+                });
+        }
+
+        function displayCheckHostNodeResult(nodeName, resultData, checkType) {
+            const nodeCard = document.createElement('div');
+            nodeCard.className = 'node-result-card';
+
+            const nameEl = document.createElement('h5');
+            nameEl.className = 'node-name';
+            nameEl.textContent = nodeName;
+            nodeCard.appendChild(nameEl);
+
+            if (resultData === null) {
+                const p = document.createElement('p');
+                p.textContent = 'Masih dalam proses pengecekan...';
+                p.className = 'text-slate-500 italic';
+                nodeCard.appendChild(p);
+            } else if (Array.isArray(resultData)) {
+                resultData.forEach(resItem => {
+                    const p = document.createElement('p');
+                    p.className = 'text-sm mb-1';
+                    if (checkType === 'ping') { // [[["OK", 0.044, "94.242.206.94"], ...]]
+                        if (Array.isArray(resItem) && resItem.length > 0) {
+                            resItem.forEach(pingAttempt => {
+                                const attemptP = document.createElement('p');
+                                attemptP.className = 'text-xs ml-2';
+                                if(pingAttempt[0] === "OK") attemptP.innerHTML = `<strong>${pingAttempt[0]}</strong>: ${pingAttempt[1]} ms (to ${pingAttempt[2]})`;
+                                else if (pingAttempt[0] === "TIMEOUT") attemptP.innerHTML = `<strong class="text-red-500">${pingAttempt[0]}</strong>: after ${pingAttempt[1]}s`;
+                                else attemptP.innerHTML = `<strong class="text-orange-500">${pingAttempt[0]}</strong>`;
+                                p.appendChild(attemptP);
+                            });
+                        } else {
+                             p.textContent = `Ping: ${JSON.stringify(resItem)}`; // Fallback
+                        }
+                    } else if (checkType === 'http') { // [[1, 0.13, "OK", "200", "94.242.206.94"]]
+                        p.innerHTML = `Status: ${resItem[0] === 1 ? '<strong class="text-green-600">Sukses</strong>' : '<strong class="text-red-600">Gagal</strong>'} | Waktu: ${resItem[1]}s | Pesan: ${resItem[2]} (${resItem[3]}) | IP: ${resItem[4] || 'N/A'}`;
+                    } else if (checkType === 'tcp') { // [{"time": 0.03, "address": "104.28.31.42"}] atau [{"error": "Connection timed out"}]
+                         if (resItem.time) p.innerHTML = `<strong class="text-green-600">Terhubung</strong>: ${resItem.time}s ke ${resItem.address || 'N/A'}`;
+                         else if (resItem.error) p.innerHTML = `<strong class="text-red-600">Error</strong>: ${resItem.error}`;
+                         else p.textContent = `TCP: ${JSON.stringify(resItem)}`; // Fallback
+                    } else if (checkType === 'dns') { // [{"A": ["..."], "AAAA": ["..."], "TTL": ...}]
+                        let dnsInfo = '';
+                        if (resItem.A && resItem.A.length > 0) dnsInfo += `A: ${resItem.A.join(', ')}<br>`;
+                        if (resItem.AAAA && resItem.AAAA.length > 0) dnsInfo += `AAAA: ${resItem.AAAA.join(', ')}<br>`;
+                        if (resItem.MX && resItem.MX.length > 0) dnsInfo += `MX: ${resItem.MX.map(mx => `${mx.priority} ${mx.host}`).join(', ')}<br>`;
+                        if (resItem.NS && resItem.NS.length > 0) dnsInfo += `NS: ${resItem.NS.join(', ')}<br>`;
+                        if (resItem.CNAME && resItem.CNAME.length > 0) dnsInfo += `CNAME: ${resItem.CNAME.join(', ')}<br>`;
+                        if (resItem.TXT && resItem.TXT.length > 0) dnsInfo += `TXT: "${resItem.TXT.join('", "')}"<br>`;
+                        if (resItem.TTL) dnsInfo += `TTL: ${resItem.TTL}`;
+                        if (!dnsInfo) dnsInfo = "Tidak ada record ditemukan atau error.";
+                        p.innerHTML = dnsInfo;
+                    } else {
+                        p.textContent = JSON.stringify(resItem);
+                    }
+                    nodeCard.appendChild(p);
+                });
+            } else {
+                 const p = document.createElement('p');
+                 p.textContent = `Data tidak dikenal: ${JSON.stringify(resultData)}`;
+                 nodeCard.appendChild(p);
+            }
+            checkHostResultsDisplayDiv.appendChild(nodeCard);
+        }
+
+
+        // --- Inisialisasi ---
+        loadMyIpInfo();
+
+    </script>
+</body>
+</html>
