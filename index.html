@@ -344,8 +344,11 @@
             } catch (error) {
                 console.error('Error fetchIpwhoApi:', error);
                 let msg = "Gagal mengambil data dari ipwho.is.";
-                if (error.message.toLowerCase().includes("failed to fetch")) msg = "Gagal terhubung ke server ipwho.is (Failed to fetch). Periksa koneksi internet Anda.";
-                else msg = error.message;
+                if (error.message.toLowerCase().includes("failed to fetch")) {
+                    msg = "Gagal terhubung ke server ipwho.is (Failed to fetch). Periksa koneksi internet Anda, firewall, atau ekstensi browser yang mungkin memblokir permintaan.";
+                } else {
+                    msg = error.message;
+                }
                 throw new Error(msg);
             }
         }
@@ -389,38 +392,67 @@
 
         // --- Fungsi API untuk check-host.net ---
         async function initiateCheckHostNet(checkType, host, maxNodes = 3) {
+            // Pastikan URL menggunakan HTTPS
             const apiUrl = `https://check-host.net/check-${checkType}?host=${encodeURIComponent(host)}&max_nodes=${maxNodes}`;
             try {
                 const response = await fetch(apiUrl, { headers: { 'Accept': 'application/json' } });
-                const data = await response.json();
-                if (!response.ok || !data.ok) {
-                    throw new Error(data.error || `Gagal memulai pengecekan: HTTP ${response.status}`);
+                // Tidak langsung parse JSON, tunggu cek response.ok
+                if (!response.ok) {
+                    let errorMsgText = `Gagal memulai pengecekan: HTTP ${response.status}.`;
+                    try {
+                        const errorData = await response.json(); // Coba parse error response
+                        if (errorData && errorData.error) {
+                           errorMsgText += ` Pesan API: ${errorData.error}`;
+                        }
+                    } catch (e) { 
+                        console.warn("Gagal mem-parsing respons error dari initiateCheckHostNet sebagai JSON:", e);
+                    }
+                    throw new Error(errorMsgText);
+                }
+                const data = await response.json(); // Parse setelah response.ok
+                if (!data.ok) { // check-host.net menggunakan 'ok' field
+                    throw new Error(data.error || `API check-host.net mengembalikan status tidak OK.`);
                 }
                 return data;
             } catch (error) {
                 console.error('Error initiateCheckHostNet:', error);
                 let msg = "Gagal memulai pengecekan dengan check-host.net.";
-                if (error.message.toLowerCase().includes("failed to fetch")) msg = "Gagal terhubung ke server check-host.net (Failed to fetch). Periksa koneksi internet Anda.";
-                else msg = error.message;
+                 if (error instanceof TypeError && error.message.toLowerCase().includes("failed to fetch")) {
+                    msg = "Gagal terhubung ke server check-host.net (Failed to fetch). Periksa koneksi internet Anda, firewall, atau ekstensi browser. Server API mungkin juga sedang tidak aktif.";
+                } else {
+                    msg = error.message;
+                }
                 throw new Error(msg);
             }
         }
 
         async function fetchCheckHostNetResult(requestId) {
+            // Pastikan URL menggunakan HTTPS
             const apiUrl = `https://check-host.net/check-result/${requestId}`;
             try {
                 const response = await fetch(apiUrl, { headers: { 'Accept': 'application/json' } });
-                const data = await response.json();
-                // Tidak ada status 'ok' di respons hasil, jadi kita asumsikan ok jika tidak error
-                if (!response.ok) {
-                     throw new Error(`Gagal mengambil hasil: HTTP ${response.status}`);
+                 if (!response.ok) {
+                    let errorMsgText = `Gagal mengambil hasil: HTTP ${response.status}.`;
+                     try {
+                        const errorData = await response.json();
+                        if (errorData && errorData.error) { // Jika API check-host punya format error sendiri
+                           errorMsgText += ` Pesan API: ${errorData.error}`;
+                        }
+                    } catch (e) { 
+                        console.warn("Gagal mem-parsing respons error dari fetchCheckHostNetResult sebagai JSON:", e);
+                    }
+                    throw new Error(errorMsgText);
                 }
+                const data = await response.json();
                 return data;
             } catch (error) {
                 console.error('Error fetchCheckHostNetResult:', error);
-                 let msg = "Gagal mengambil hasil pengecekan dari check-host.net.";
-                if (error.message.toLowerCase().includes("failed to fetch")) msg = "Gagal terhubung ke server check-host.net (Failed to fetch) saat mengambil hasil.";
-                else msg = error.message;
+                let msg = "Gagal mengambil hasil pengecekan dari check-host.net.";
+                if (error instanceof TypeError && error.message.toLowerCase().includes("failed to fetch")) {
+                    msg = "Gagal terhubung ke server check-host.net (Failed to fetch) saat mengambil hasil. Periksa koneksi internet Anda.";
+                } else {
+                    msg = error.message;
+                }
                 throw new Error(msg);
             }
         }
@@ -435,10 +467,16 @@
             getCheckHostResultsButton.disabled = true;
             checkHostResultsLoader.classList.remove('hidden');
             checkHostInitialInfoDiv.classList.add('hidden');
-            checkHostResultsDisplayDiv.classList.add('hidden');
+            checkHostResultsDisplayDiv.classList.add('hidden'); // Sembunyikan hasil lama
             checkHostErrorDiv.classList.add('hidden');
             checkHostNodesListEl.innerHTML = '';
             
+            // Hentikan polling sebelumnya jika ada
+            if (checkHostResultPollInterval) {
+                clearTimeout(checkHostResultPollInterval);
+                checkHostResultPollInterval = null;
+            }
+
             try {
                 const initialData = await initiateCheckHostNet(currentCheckHostType, host);
                 currentCheckHostRequestId = initialData.request_id;
@@ -448,7 +486,6 @@
                 if (initialData.nodes) {
                     Object.entries(initialData.nodes).forEach(([nodeName, nodeInfo]) => {
                         const li = document.createElement('li');
-                        // nodeInfo is an array: ["us", "USA", "Los Angeles", "5.253.30.82", "AS18978"]
                         li.textContent = `${nodeName} (${nodeInfo[1]}, ${nodeInfo[2]})`;
                         checkHostNodesListEl.appendChild(li);
                     });
@@ -456,23 +493,28 @@
 
                 checkHostInitialInfoDiv.classList.remove('hidden');
                 getCheckHostResultsButton.disabled = false;
-                // Otomatis coba ambil hasil pertama setelah beberapa detik
                 pollAttempts = 0;
-                setTimeout(pollForCheckHostResults, POLL_INTERVAL_MS);
-
+                checkHostResultsDisplayDiv.innerHTML = '<p class="text-slate-500 italic">Mengambil hasil awal...</p>';
+                checkHostResultsDisplayDiv.classList.remove('hidden');
+                checkHostResultPollInterval = setTimeout(pollForCheckHostResults, POLL_INTERVAL_MS);
 
             } catch (error) {
                 checkHostErrorDiv.textContent = `Error memulai pengecekan: ${error.message}`;
                 checkHostErrorDiv.classList.remove('hidden');
-            } finally {
-                checkHostResultsLoader.classList.add('hidden'); // Sembunyikan loader utama jika error di awal
-                startCheckHostButton.disabled = false; // Aktifkan kembali tombol start jika gagal
-            }
+                startCheckHostButton.disabled = false; 
+            } 
+            // Loader utama (checkHostResultsLoader) akan dihandle oleh pollForCheckHostResults
         });
 
         getCheckHostResultsButton.addEventListener('click', () => {
             if (currentCheckHostRequestId) {
-                pollAttempts = 0; // Reset attempts jika manual klik
+                if (checkHostResultPollInterval) {
+                    clearTimeout(checkHostResultPollInterval);
+                    checkHostResultPollInterval = null;
+                }
+                pollAttempts = 0; 
+                checkHostResultsDisplayDiv.innerHTML = '<p class="text-slate-500 italic">Memuat ulang hasil...</p>'; 
+                checkHostResultsDisplayDiv.classList.remove('hidden');
                 pollForCheckHostResults();
             } else {
                 showCustomAlert("Belum ada pengecekan yang dimulai atau ID permintaan tidak valid.");
@@ -482,25 +524,26 @@
         function pollForCheckHostResults() {
             if (!currentCheckHostRequestId) return;
 
-            getCheckHostResultsButton.disabled = true;
-            checkHostResultsLoader.classList.remove('hidden');
-            checkHostErrorDiv.classList.add('hidden'); // Sembunyikan error lama
+            getCheckHostResultsButton.disabled = true; 
+            checkHostResultsLoader.classList.remove('hidden'); 
+            checkHostErrorDiv.classList.add('hidden'); 
 
             fetchCheckHostNetResult(currentCheckHostRequestId)
                 .then(results => {
-                    checkHostResultsDisplayDiv.innerHTML = ''; // Clear previous results
+                    checkHostResultsDisplayDiv.innerHTML = ''; 
                     let allNodesCompleted = true;
+                    let hasResults = Object.keys(results).length > 0;
                     
-                    if (Object.keys(results).length === 0) { // Jika objek hasil kosong
-                        allNodesCompleted = false; // Anggap belum selesai
+                    if (!hasResults) { 
+                        allNodesCompleted = false;
                         const p = document.createElement('p');
                         p.textContent = "Menunggu hasil dari node...";
-                        p.className = "text-slate-500";
+                        p.className = "text-slate-500 italic";
                         checkHostResultsDisplayDiv.appendChild(p);
                     } else {
                         for (const nodeName in results) {
                             const nodeResult = results[nodeName];
-                            if (nodeResult === null) { // Jika satu node masih null, belum semua selesai
+                            if (nodeResult === null) { 
                                 allNodesCompleted = false;
                             }
                             displayCheckHostNodeResult(nodeName, nodeResult, currentCheckHostType);
@@ -512,25 +555,21 @@
                     if (!allNodesCompleted && pollAttempts < MAX_POLL_ATTEMPTS) {
                         pollAttempts++;
                         checkHostResultPollInterval = setTimeout(pollForCheckHostResults, POLL_INTERVAL_MS);
-                         // Jangan aktifkan tombol get result jika masih polling
                     } else if (!allNodesCompleted && pollAttempts >= MAX_POLL_ATTEMPTS) {
                         checkHostErrorDiv.textContent = "Gagal mendapatkan semua hasil setelah beberapa kali percobaan. Anda bisa mencoba 'Dapatkan Hasil' lagi atau cek tautan laporan.";
                         checkHostErrorDiv.classList.remove('hidden');
-                        getCheckHostResultsButton.disabled = false; // Aktifkan kembali jika polling maxed out
-                    } else {
-                        getCheckHostResultsButton.disabled = false; // Semua selesai, aktifkan tombol
+                        getCheckHostResultsButton.disabled = false; 
+                        checkHostResultsLoader.classList.add('hidden'); 
+                    } else { 
+                        getCheckHostResultsButton.disabled = false; 
+                        checkHostResultsLoader.classList.add('hidden'); 
                     }
                 })
                 .catch(error => {
                     checkHostErrorDiv.textContent = `Error mengambil hasil: ${error.message}`;
                     checkHostErrorDiv.classList.remove('hidden');
                     getCheckHostResultsButton.disabled = false;
-                })
-                .finally(() => {
-                    // Sembunyikan loader hanya jika tidak ada polling lanjutan atau sudah selesai/error
-                    if (pollAttempts >= MAX_POLL_ATTEMPTS || (Object.keys(checkHostResultsDisplayDiv.innerHTML).length > 0 && !checkHostResultsDisplayDiv.textContent.includes("Menunggu hasil"))) {
-                         checkHostResultsLoader.classList.add('hidden');
-                    }
+                    checkHostResultsLoader.classList.add('hidden');
                 });
         }
 
@@ -549,47 +588,85 @@
                 p.className = 'text-slate-500 italic';
                 nodeCard.appendChild(p);
             } else if (Array.isArray(resultData)) {
-                resultData.forEach(resItem => {
-                    const p = document.createElement('p');
-                    p.className = 'text-sm mb-1';
-                    if (checkType === 'ping') { // [[["OK", 0.044, "94.242.206.94"], ...]]
-                        if (Array.isArray(resItem) && resItem.length > 0) {
-                            resItem.forEach(pingAttempt => {
-                                const attemptP = document.createElement('p');
-                                attemptP.className = 'text-xs ml-2';
-                                if(pingAttempt[0] === "OK") attemptP.innerHTML = `<strong>${pingAttempt[0]}</strong>: ${pingAttempt[1]} ms (to ${pingAttempt[2]})`;
-                                else if (pingAttempt[0] === "TIMEOUT") attemptP.innerHTML = `<strong class="text-red-500">${pingAttempt[0]}</strong>: after ${pingAttempt[1]}s`;
-                                else attemptP.innerHTML = `<strong class="text-orange-500">${pingAttempt[0]}</strong>`;
-                                p.appendChild(attemptP);
-                            });
+                if (resultData.length === 0 ) { 
+                     const p = document.createElement('p');
+                     if (checkType === 'dns' || checkType === 'ping') {
+                        p.textContent = 'Tidak dapat me-resolve host atau tidak ada data.';
+                        p.className = 'text-orange-600';
+                     } else {
+                        p.textContent = 'Tidak ada hasil diterima dari node ini.';
+                        p.className = 'text-slate-500';
+                     }
+                     nodeCard.appendChild(p);
+                } else {
+                    resultData.forEach(resItem => {
+                        const p = document.createElement('p');
+                        p.className = 'text-sm mb-1';
+                        if (checkType === 'ping') { 
+                            if (Array.isArray(resItem) && resItem.length > 0 && resItem[0] !== null) {
+                                resItem.forEach(pingAttempt => {
+                                    const attemptP = document.createElement('p');
+                                    attemptP.className = 'text-xs ml-2';
+                                    if(pingAttempt[0] === "OK") attemptP.innerHTML = `<strong>${pingAttempt[0]}</strong>: ${pingAttempt[1]} ms (to ${pingAttempt[2]})`;
+                                    else if (pingAttempt[0] === "TIMEOUT") attemptP.innerHTML = `<strong class="text-red-500">${pingAttempt[0]}</strong>: after ${pingAttempt[1]}s`;
+                                    else attemptP.innerHTML = `<strong class="text-orange-500">${pingAttempt[0]}</strong> (Malformed/Error)`;
+                                    p.appendChild(attemptP);
+                                });
+                            } else if (resItem === null || (Array.isArray(resItem) && resItem[0] === null)) {
+                                const errP = document.createElement('p');
+                                errP.textContent = 'Tidak dapat me-resolve host atau error ping.';
+                                errP.className = 'text-red-500';
+                                p.appendChild(errP);
+                            } else {
+                                 p.textContent = `Ping (raw): ${JSON.stringify(resItem)}`; 
+                            }
+                        } else if (checkType === 'http') { 
+                            p.innerHTML = `Status: ${resItem[0] === 1 ? '<strong class="text-green-600">Sukses</strong>' : '<strong class="text-red-600">Gagal</strong>'} | Waktu: ${resItem[1]}s | Pesan: ${resItem[2]} (${resItem[3]}) | IP: ${resItem[4] || 'N/A'}`;
+                        } else if (checkType === 'tcp') { 
+                             if (resItem.time) p.innerHTML = `<strong class="text-green-600">Terhubung</strong>: ${resItem.time}s ke ${resItem.address || 'N/A'}`;
+                             else if (resItem.error) p.innerHTML = `<strong class="text-red-600">Error</strong>: ${resItem.error}`;
+                             else p.textContent = `TCP (raw): ${JSON.stringify(resItem)}`; 
+                        } else if (checkType === 'dns') { 
+                            let dnsInfo = '';
+                            if (resItem.A && resItem.A.length > 0) dnsInfo += `A: ${resItem.A.join(', ')}<br>`;
+                            else if (resItem.hasOwnProperty('A') && resItem.A.length === 0) dnsInfo += `A: Tidak ditemukan<br>`;
+
+                            if (resItem.AAAA && resItem.AAAA.length > 0) dnsInfo += `AAAA: ${resItem.AAAA.join(', ')}<br>`;
+                            else if (resItem.hasOwnProperty('AAAA') && resItem.AAAA.length === 0) dnsInfo += `AAAA: Tidak ditemukan<br>`;
+                            
+                            if (resItem.MX && resItem.MX.length > 0) dnsInfo += `MX: ${resItem.MX.map(mx => `${mx.priority || ''} ${mx.host} (TTL: ${mx.ttl || 'N/A'})`).join('<br>')}<br>`;
+                            if (resItem.NS && resItem.NS.length > 0) dnsInfo += `NS: ${resItem.NS.map(ns => `${ns.host} (TTL: ${ns.ttl || 'N/A'})`).join('<br>')}<br>`;
+                            if (resItem.CNAME && resItem.CNAME.length > 0) dnsInfo += `CNAME: ${resItem.CNAME.map(cname => `${cname.host} (TTL: ${cname.ttl || 'N/A'})`).join('<br>')}<br>`;
+                            if (resItem.TXT && resItem.TXT.length > 0) dnsInfo += `TXT: ${resItem.TXT.map(txt => `"${txt.data}" (TTL: ${txt.ttl || 'N/A'})`).join('<br>')}<br>`;
+                            
+                            if (resItem.hasOwnProperty('TTL') && !(resItem.A || resItem.AAAA || resItem.MX || resItem.NS || resItem.CNAME || resItem.TXT )) { 
+                                dnsInfo += `TTL: ${resItem.TTL} (Tidak ada record spesifik ditemukan)<br>`;
+                            }
+                            if (!dnsInfo && Object.keys(resItem).length === 0) dnsInfo = "Tidak ada record DNS ditemukan.";
+                            else if (!dnsInfo) dnsInfo = `DNS (raw): ${JSON.stringify(resItem)}`;
+
+                            p.innerHTML = dnsInfo;
                         } else {
-                             p.textContent = `Ping: ${JSON.stringify(resItem)}`; // Fallback
+                            p.textContent = JSON.stringify(resItem);
                         }
-                    } else if (checkType === 'http') { // [[1, 0.13, "OK", "200", "94.242.206.94"]]
-                        p.innerHTML = `Status: ${resItem[0] === 1 ? '<strong class="text-green-600">Sukses</strong>' : '<strong class="text-red-600">Gagal</strong>'} | Waktu: ${resItem[1]}s | Pesan: ${resItem[2]} (${resItem[3]}) | IP: ${resItem[4] || 'N/A'}`;
-                    } else if (checkType === 'tcp') { // [{"time": 0.03, "address": "104.28.31.42"}] atau [{"error": "Connection timed out"}]
-                         if (resItem.time) p.innerHTML = `<strong class="text-green-600">Terhubung</strong>: ${resItem.time}s ke ${resItem.address || 'N/A'}`;
-                         else if (resItem.error) p.innerHTML = `<strong class="text-red-600">Error</strong>: ${resItem.error}`;
-                         else p.textContent = `TCP: ${JSON.stringify(resItem)}`; // Fallback
-                    } else if (checkType === 'dns') { // [{"A": ["..."], "AAAA": ["..."], "TTL": ...}]
-                        let dnsInfo = '';
-                        if (resItem.A && resItem.A.length > 0) dnsInfo += `A: ${resItem.A.join(', ')}<br>`;
-                        if (resItem.AAAA && resItem.AAAA.length > 0) dnsInfo += `AAAA: ${resItem.AAAA.join(', ')}<br>`;
-                        if (resItem.MX && resItem.MX.length > 0) dnsInfo += `MX: ${resItem.MX.map(mx => `${mx.priority} ${mx.host}`).join(', ')}<br>`;
-                        if (resItem.NS && resItem.NS.length > 0) dnsInfo += `NS: ${resItem.NS.join(', ')}<br>`;
-                        if (resItem.CNAME && resItem.CNAME.length > 0) dnsInfo += `CNAME: ${resItem.CNAME.join(', ')}<br>`;
-                        if (resItem.TXT && resItem.TXT.length > 0) dnsInfo += `TXT: "${resItem.TXT.join('", "')}"<br>`;
-                        if (resItem.TTL) dnsInfo += `TTL: ${resItem.TTL}`;
-                        if (!dnsInfo) dnsInfo = "Tidak ada record ditemukan atau error.";
-                        p.innerHTML = dnsInfo;
-                    } else {
-                        p.textContent = JSON.stringify(resItem);
-                    }
-                    nodeCard.appendChild(p);
-                });
-            } else {
+                        nodeCard.appendChild(p);
+                    });
+                }
+            } else if (typeof resultData === 'object' && resultData !== null) { 
                  const p = document.createElement('p');
-                 p.textContent = `Data tidak dikenal: ${JSON.stringify(resultData)}`;
+                 p.className = 'text-sm mb-1';
+                 if (checkType === 'tcp') {
+                     if (resultData.time) p.innerHTML = `<strong class="text-green-600">Terhubung</strong>: ${resultData.time}s ke ${resultData.address || 'N/A'}`;
+                     else if (resultData.error) p.innerHTML = `<strong class="text-red-600">Error</strong>: ${resultData.error}`;
+                     else p.textContent = `TCP (raw): ${JSON.stringify(resultData)}`;
+                 } else {
+                    p.textContent = `Data objek tidak dikenal: ${JSON.stringify(resultData)}`;
+                 }
+                 nodeCard.appendChild(p);
+            }
+             else {
+                 const p = document.createElement('p');
+                 p.textContent = `Data tidak dikenal atau format tidak sesuai: ${JSON.stringify(resultData)}`;
                  nodeCard.appendChild(p);
             }
             checkHostResultsDisplayDiv.appendChild(nodeCard);
